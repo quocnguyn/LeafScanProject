@@ -7,7 +7,7 @@ GpioThread::GpioThread(const std::string &chipName, int lineNum, QObject *parent
     : QThread(parent), m_chipName(chipName), m_lineNum(lineNum), m_running(true) {}
 
 void GpioThread::stop() {
-    m_running = false;
+    m_running.store(false);
     requestInterruption();
     wait();
 }
@@ -23,7 +23,7 @@ void GpioThread::run() {
         
         line.request(config);
         
-        while (m_running && !isInterruptionRequested()) {
+        while (m_running.load() && !isInterruptionRequested()) {
             if (line.event_wait(std::chrono::seconds(1))) {
                 gpiod::line_event event = line.event_read();
                 if (event.event_type == gpiod::line_event::RISING_EDGE) {

@@ -3,6 +3,7 @@
 #include <QThread>
 #include <string>
 #include <gpiod.hpp>
+#include <atomic>
 
 // ==============================================================
 // Class: GpioThread
@@ -23,5 +24,5 @@ protected:
 private:
     std::string m_chipName;
     int m_lineNum;
-    bool m_running;
+    std::atomic<bool> m_running;
 };
