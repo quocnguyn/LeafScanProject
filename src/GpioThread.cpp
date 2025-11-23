@@ -23,12 +23,18 @@ void GpioThread::run() {
         
         line.request(config);
         
-        while (m_running.load() && !isInterruptionRequested()) {
-            if (line.event_wait(std::chrono::seconds(1))) {
-                gpiod::line_event event = line.event_read();
-                if (event.event_type == gpiod::line_event::RISING_EDGE) {
-                    emit buttonPressed();
-                }
+        while (m_running.load() && not isInterruptionRequested()) {
+            // 1. Wait for an event (timeout after 1 second)
+            if (not line.event_wait(std::chrono::seconds(1))) {
+                continue; // Timeout occurred, check loop condition again
+            }
+
+            // 2. Read the event
+            gpiod::line_event event = line.event_read();
+
+            // 3. Process the event
+            if (event.event_type == gpiod::line_event::RISING_EDGE) {
+                emit buttonPressed();
             }
         }
     } catch (const std::exception &e) {

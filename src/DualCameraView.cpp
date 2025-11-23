@@ -36,11 +36,15 @@ DualCameraView::DualCameraView(QWidget *parent) : QWidget(parent) {
 }
 
 void DualCameraView::updateRgb(const QImage &img) {
-    if (!img.isNull())
-        m_rgbLabel->setPixmap(QPixmap::fromImage(img).scaled(m_rgbLabel->size(), Qt::KeepAspectRatio));
+    if (img.isNull()) {
+        return;
+    }
+    m_rgbLabel->setPixmap(QPixmap::fromImage(img).scaled(m_rgbLabel->size(), Qt::KeepAspectRatio));
 }
 
 void DualCameraView::updateNoir(const QImage &img) {
-        if (!img.isNull())
-        m_noirLabel->setPixmap(QPixmap::fromImage(img).scaled(m_noirLabel->size(), Qt::KeepAspectRatio));
+    if (img.isNull()) {
+        return;
+    }
+    m_noirLabel->setPixmap(QPixmap::fromImage(img).scaled(m_noirLabel->size(), Qt::KeepAspectRatio));
 }

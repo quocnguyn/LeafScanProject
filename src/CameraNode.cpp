@@ -95,12 +95,8 @@ bool CameraNode::startPreview() {
 
     bool isAwbEnable = controls.get(controls::AwbEnable).value();
     if (isInControlList(&controls::AwbMode)) {
-        if (isAwbEnable) {
-            controls.set(controls::AwbMode, controls::AwbAuto);
-        }
-        else {
-            controls.set(controls::AwbMode, controls::AwbCustom);
-        }
+        auto mode = isAwbEnable ? controls::AwbAuto : controls::AwbCustom;
+        controls.set(controls::AwbMode, mode);
     }
 
     if (not isAwbEnable and isInControlList(&controls::ColourGains)) {
@@ -174,37 +170,41 @@ void CameraNode::requestComplete(Request *request) {
     if (request->status() == Request::RequestCancelled) return;
 
     const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
+
+    auto saveFrame = [this](QImage &capturedFrame) -> void {
+        QString date = QDateTime::currentDateTime().toString("yyyy-MM-dd");
+        QString time = QDateTime::currentDateTime().toString("HHmmss");
+        QString dirPath = QString("captures/%1/%2").arg(m_capturePrefix).arg(date);
+        QDir().mkpath(dirPath);
+        QString path = dirPath + "/" + time + ".jpg";
+        
+        capturedFrame.save(path);
+        qDebug() << "Saved Image:" << path << "Size:" << capturedFrame.size();
+
+        m_capturing = false;
+        emit captureComplete();
+    };
     
     for (auto [stream, buffer] : buffers) {
         if (m_mappedBuffers.find(buffer) == m_mappedBuffers.end()) continue;
+        if (not m_mappedBuffers[buffer].isValid()) continue;
         
         void *data = m_mappedBuffers[buffer].get();
-        if (!data) continue;
 
         StreamConfiguration &cfg = m_config->at(0);
 
         QImage img((uchar*)data, cfg.size.width, cfg.size.height, cfg.stride, QImage::Format_BGR888);
         
         if (m_capturing) {
-            QString date = QDateTime::currentDateTime().toString("yyyy-MM-dd");
-            QString time = QDateTime::currentDateTime().toString("HHmmss");
-            QString dirPath = QString("captures/%1/%2").arg(m_capturePrefix).arg(date);
-            QDir().mkpath(dirPath);
-            QString path = dirPath + "/" + time + ".jpg";
-            
-            img.save(path);
-            qDebug() << "Saved Image:" << path << "Size:" << img.size();
-
-            m_capturing = false;
-            emit captureComplete(); 
+            saveFrame(img);
             return; 
-        } else {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_currentImage = img.copy(); 
         }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_currentImage = img.copy(); 
     }
 
-    if (!m_capturing) {
+    if (not m_capturing) {
         request->reuse(Request::ReuseBuffers);
         m_camera->queueRequest(request);
         emit frameReady();
