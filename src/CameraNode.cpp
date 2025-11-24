@@ -8,7 +8,7 @@
 using namespace libcamera;
 
 CameraNode::CameraNode(std::shared_ptr<Camera> cam, QObject *parent)
-    : QObject(parent), m_camera(cam), m_capturing(false) {
+    : QObject(parent), m_camera(cam), m_currentState(State::Idle) {
         
     // 1. Acquire the camera ONCE when the node is created.
     if (m_camera->acquire()) {
@@ -37,7 +37,7 @@ void CameraNode::freeResources() {
 }
 
 bool CameraNode::startPreview() {
-    if (!m_camera) return false;
+    if (not m_camera) return false;
 
     freeResources();
 
@@ -73,7 +73,7 @@ bool CameraNode::startPreview() {
         m_mappedBuffers[buffer.get()] = ScopedMapping(plane.fd.get(), plane.length);
 
         std::unique_ptr<Request> request = m_camera->createRequest();
-        if (!request) return false;
+        if (not request) return false;
         
         if (request->addBuffer(stream, buffer.get()) < 0) return false;
         m_requests.push_back(std::move(request));
@@ -115,13 +115,16 @@ bool CameraNode::startPreview() {
         m_camera->queueRequest(req.get());
     }
 
+    m_currentState = State::Previewing;
     return true;
 }
 
 void CameraNode::captureAndSave(const QString &type) {
+    // Do not interrupt an existing capture
+    if(m_currentState == State::Capturing) {return;}
+
     freeResources();
-    
-    m_capturing = true;
+    m_currentState = State::Capturing;
     m_capturePrefix = type;
 
     // Configure for Still
@@ -158,6 +161,7 @@ void CameraNode::captureAndSave(const QString &type) {
 }
 
 void CameraNode::stop() {
+    m_currentState = State::Idle;
     freeResources();
 }
 
@@ -180,9 +184,6 @@ void CameraNode::requestComplete(Request *request) {
         
         capturedFrame.save(path);
         qDebug() << "Saved Image:" << path << "Size:" << capturedFrame.size();
-
-        m_capturing = false;
-        emit captureComplete();
     };
     
     for (auto [stream, buffer] : buffers) {
@@ -194,17 +195,21 @@ void CameraNode::requestComplete(Request *request) {
         StreamConfiguration &cfg = m_config->at(0);
 
         QImage img((uchar*)data, cfg.size.width, cfg.size.height, cfg.stride, QImage::Format_BGR888);
-        
-        if (m_capturing) {
-            saveFrame(img);
-            return; 
-        }
 
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_currentImage = img.copy(); 
+        switch(m_currentState.load()){
+            case State::Capturing: {
+                saveFrame(img);
+                emit captureComplete();
+                return;
+            }
+            case State::Previewing: {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_currentImage = img.copy(); 
+            }
+        }
     }
 
-    if (not m_capturing) {
+    if (m_currentState == State::Previewing) {
         request->reuse(Request::ReuseBuffers);
         m_camera->queueRequest(request);
         emit frameReady();

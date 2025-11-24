@@ -19,11 +19,16 @@ class CameraNode : public QObject {
     Q_OBJECT
 
 public:
+    enum class State {
+        Idle,
+        Previewing,
+        Capturing
+    };
+
     explicit CameraNode(std::shared_ptr<libcamera::Camera> cam, QObject *parent = nullptr);
     ~CameraNode();
 
     void freeResources();
-
     QImage getLatestImage();
     void stop();
 
@@ -48,7 +53,6 @@ private:
 
     QImage m_currentImage;
     std::mutex m_mutex;
-
-    bool m_capturing;
+    std::atomic<State> m_currentState;
     QString m_capturePrefix;
 };
