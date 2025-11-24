@@ -1,4 +1,5 @@
 #include "DualCameraModel.hpp"
+#include "Config.hpp"
 
 #include <QDebug>
 
@@ -17,7 +18,7 @@ DualCameraModel::DualCameraModel(CameraManager *camManager, QObject *parent)
     connect(m_noirCam.get(), &CameraNode::captureComplete, this, &DualCameraModel::onCaptureFinished);
     connect(m_rgbCam.get(), &CameraNode::captureComplete, this, &DualCameraModel::onCaptureFinished);
 
-    m_gpio = std::make_unique<GpioThread>("gpiochip0", 27, nullptr);
+    m_gpio = std::make_unique<GpioThread>(Config::Gpio::ChipName, Config::Gpio::TriggerButtonLine, nullptr);
     connect(m_gpio.get(), &GpioThread::buttonPressed, this, &DualCameraModel::buttonPressed);
     m_gpio->start();
 }

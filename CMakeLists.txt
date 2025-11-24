@@ -56,6 +56,7 @@ set(HEADERS
     include/DualCameraModel.hpp
     include/DualCameraView.hpp
     include/DualCameraController.hpp
+    include/Config.hpp
 )
 
 set(SOURCES

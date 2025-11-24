@@ -1,4 +1,5 @@
 #include "DualCameraView.hpp"
+#include "Config.hpp"
 
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -12,12 +13,12 @@ DualCameraView::DualCameraView(QWidget *parent) : QWidget(parent) {
     // takes ownership of child widgets.
     m_rgbLabel = new QLabel("RGB Camera");
     // Updated to 5:4 aspect ratio
-    m_rgbLabel->setMinimumSize(640, 512);
+    m_rgbLabel->setMinimumSize(Config::Ui::ViewLabelWidth, Config::Ui::ViewLabelHeight);
     m_rgbLabel->setAlignment(Qt::AlignCenter);
     m_rgbLabel->setStyleSheet("background-color: #222; color: white;");
 
     m_noirLabel = new QLabel("NoIR Camera");
-    m_noirLabel->setMinimumSize(640, 512);
+    m_noirLabel->setMinimumSize(Config::Ui::ViewLabelWidth, Config::Ui::ViewLabelHeight);
     m_noirLabel->setAlignment(Qt::AlignCenter);
     m_noirLabel->setStyleSheet("background-color: #222; color: white;");
 

@@ -1,4 +1,5 @@
 #include "CameraNode.hpp"
+#include "Config.hpp"
 
 #include <QDebug>
 #include <QDateTime>
@@ -43,7 +44,7 @@ bool CameraNode::startPreview() {
     // Configure for Preview (1280x1024 - 5:4 aspect ratio)
     m_config = m_camera->generateConfiguration({ StreamRole::Viewfinder });
     StreamConfiguration &streamConfig = m_config->at(0);
-    streamConfig.size = {1280, 1024};
+    streamConfig.size = {Config::Camera::PreviewWidth, Config::Camera::PreviewHeight};
     streamConfig.pixelFormat = formats::RGB888; 
     
     if (m_config->validate() == CameraConfiguration::Invalid) {
@@ -100,8 +101,7 @@ bool CameraNode::startPreview() {
     }
 
     if (not isAwbEnable and isInControlList(&controls::ColourGains)) {
-        std::array<float, 2u> manualGains = {2.1f, 2.1f};
-        controls.set(controls::ColourGains, manualGains);
+        controls.set(controls::ColourGains, Config::Camera::DefaultGains);
     }
 
     if (m_camera->start(&controls)) {
@@ -129,7 +129,7 @@ void CameraNode::captureAndSave(const QString &type) {
     StreamConfiguration &cfg = m_config->at(0);
     
     // 2560x2048 (5:4 Aspect Ratio, 2K Width)
-    cfg.size = {2560, 2048}; 
+    cfg.size = {Config::Camera::CaptureWidth, Config::Camera::CaptureHeight}; 
     cfg.pixelFormat = formats::RGB888;
     
     m_config->validate();

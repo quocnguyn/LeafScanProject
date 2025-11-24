@@ -1,4 +1,5 @@
 #include "DualCameraController.hpp"
+#include "Config.hpp"
 
 #include <QMessageBox>
 
@@ -11,7 +12,7 @@ DualCameraController::DualCameraController(DualCameraModel &model, DualCameraVie
 
     m_timer = std::make_unique<QTimer>();
     connect(m_timer.get(), &QTimer::timeout, this, &DualCameraController::updateFrames);
-    m_timer->start(50); 
+    m_timer->start(Config::Ui::RefreshIntervalMs); 
 }
 
 void DualCameraController::handleCapture() {
