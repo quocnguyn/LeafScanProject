@@ -12,6 +12,29 @@
 #include <map>
 
 // ==============================================================
+// RAII Wrapper: Handles a Running Camera Session
+// (Config + Buffers + Requests + Start/Stop)
+// ==============================================================
+class CameraStreamSession {
+public:
+    CameraStreamSession(std::shared_ptr<libcamera::Camera> cam, const libcamera::StreamRole &role,
+                        const int &width, const int &height, const libcamera::ControlList &controls);
+    
+    ~CameraStreamSession();
+
+    // Helper to access mapped memory for a specific buffer
+    void* getBufferData(libcamera::FrameBuffer* buffer);
+    const libcamera::StreamConfiguration& getConfig() const;
+
+private:
+    std::shared_ptr<libcamera::Camera> m_camera;
+    std::unique_ptr<libcamera::CameraConfiguration> m_config;
+    std::unique_ptr<libcamera::FrameBufferAllocator> m_allocator;
+    std::vector<std::unique_ptr<libcamera::Request>> m_requests;
+    std::map<libcamera::FrameBuffer *, ScopedMapping> m_mappedBuffers;
+};
+
+// ==============================================================
 // Class: CameraNode
 // Manages a single libcamera instance (Configuration, Buffers, Requests)
 // ==============================================================
@@ -45,12 +68,8 @@ private:
     void initDefaultControls();
 
     std::shared_ptr<libcamera::Camera> m_camera;
-    std::unique_ptr<libcamera::CameraConfiguration> m_config;
-    std::unique_ptr<libcamera::FrameBufferAllocator> m_allocator;
-    std::vector<std::unique_ptr<libcamera::Request>> m_requests;
-
-    // Map uses ScopedMapping (RAII)
-    std::map<libcamera::FrameBuffer *, ScopedMapping> m_mappedBuffers;
+    // RAII Members
+    std::unique_ptr<CameraStreamSession> m_session;
 
     QImage m_currentImage;
     std::mutex m_mutex;
