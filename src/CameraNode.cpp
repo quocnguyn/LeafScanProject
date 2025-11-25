@@ -15,6 +15,8 @@ CameraNode::CameraNode(std::shared_ptr<Camera> cam, QObject *parent)
         qCritical() << "Failed to acquire camera:" << QString::fromStdString(m_camera->id());
     }
 
+    initDefaultControls();
+
     connect(this, &CameraNode::captureComplete, this, &CameraNode::startPreview, Qt::QueuedConnection);
 }
 
@@ -34,6 +36,33 @@ void CameraNode::freeResources() {
 
     m_allocator.reset();
     m_requests.clear();
+}
+
+void CameraNode::initDefaultControls() {
+    m_controls = ControlList(m_camera->controls());
+
+    auto isInControlList = [=](const auto &id){
+        auto foundId = m_camera->controls().find(id);
+        return foundId != m_camera->controls().end();
+    };
+
+    if (isInControlList(&controls::AfMode)) {
+        m_controls.set(controls::AfMode, controls::AfModeContinuous);
+    }
+    
+    if (isInControlList(&controls::AwbEnable)) {
+        m_controls.set(controls::AwbEnable, false); 
+    }
+
+    bool isAwbEnable = m_controls.get(controls::AwbEnable).value();
+    if (isInControlList(&controls::AwbMode)) {
+        auto mode = isAwbEnable ? controls::AwbAuto : controls::AwbCustom;
+        m_controls.set(controls::AwbMode, mode);
+    }
+
+    if (not isAwbEnable && isInControlList(&controls::ColourGains)) {
+        m_controls.set(controls::ColourGains, Config::Camera::DefaultGains);
+    }
 }
 
 bool CameraNode::startPreview() {
@@ -79,34 +108,9 @@ bool CameraNode::startPreview() {
         m_requests.push_back(std::move(request));
     }
 
-    // Controls
-    ControlList controls;
-    auto isInControlList = [=](const auto &id){
-        auto foundId = m_camera->controls().find(id);
-        return foundId != m_camera->controls().end();
-    };
-
-    if (isInControlList(&controls::AfMode)) {
-        controls.set(controls::AfMode, controls::AfModeContinuous);
-    }
-    
-    if (isInControlList(&controls::AwbEnable)) {
-        controls.set(controls::AwbEnable, true); 
-    }
-
-    bool isAwbEnable = controls.get(controls::AwbEnable).value();
-    if (isInControlList(&controls::AwbMode)) {
-        auto mode = isAwbEnable ? controls::AwbAuto : controls::AwbCustom;
-        controls.set(controls::AwbMode, mode);
-    }
-
-    if (not isAwbEnable and isInControlList(&controls::ColourGains)) {
-        controls.set(controls::ColourGains, Config::Camera::DefaultGains);
-    }
-
-    if (m_camera->start(&controls)) {
-            qWarning() << "Failed to start camera";
-            return false;
+    if (m_camera->start(&m_controls)) {
+        qWarning() << "Failed to start camera";
+        return false;
     }
 
     m_camera->requestCompleted.connect(this, &CameraNode::requestComplete);

@@ -42,6 +42,7 @@ signals:
 
 private:
     void requestComplete(libcamera::Request *request);
+    void initDefaultControls();
 
     std::shared_ptr<libcamera::Camera> m_camera;
     std::unique_ptr<libcamera::CameraConfiguration> m_config;
@@ -54,5 +55,6 @@ private:
     QImage m_currentImage;
     std::mutex m_mutex;
     std::atomic<State> m_currentState;
+    libcamera::ControlList m_controls;
     QString m_capturePrefix;
 };
