@@ -25,19 +25,18 @@
 #include <QDateTime>
 #include <QDir>
 #include <QDebug>
+#include <QSizePolicy>
+#include <QSize> // Added for QSize
 
 using namespace libcamera;
 
 // ==============================================================
 // RAII Wrapper for Memory Mapped Buffers
-// Replaces manual munmap handling with automatic cleanup
 // ==============================================================
 class ScopedMapping {
 public:
-    // Default constructor (invalid state)
     ScopedMapping() : addr_(MAP_FAILED), len_(0) {}
 
-    // RAII Constructor: Performs mmap immediately
     ScopedMapping(int fd, size_t length) : len_(length) {
         addr_ = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if (addr_ == MAP_FAILED) {
@@ -46,16 +45,11 @@ public:
         }
     }
 
-    // Destructor: Automatically unmaps memory
-    ~ScopedMapping() {
-        reset();
-    }
+    ~ScopedMapping() { reset(); }
 
-    // Disable Copying (to prevent double munmap)
     ScopedMapping(const ScopedMapping&) = delete;
     ScopedMapping& operator=(const ScopedMapping&) = delete;
 
-    // Enable Moving
     ScopedMapping(ScopedMapping&& other) noexcept : addr_(other.addr_), len_(other.len_) {
         other.addr_ = MAP_FAILED;
         other.len_ = 0;
@@ -90,7 +84,6 @@ private:
 
 // ==============================================================
 // Class: CameraNode
-// Manages a single libcamera instance (Configuration, Buffers, Requests)
 // ==============================================================
 class CameraNode : public QObject {
     Q_OBJECT
@@ -99,7 +92,6 @@ public:
     CameraNode(std::shared_ptr<Camera> cam, QObject *parent = nullptr)
         : QObject(parent), camera_(cam), capturing_(false) {
             
-            // 1. Acquire the camera ONCE when the node is created.
             if (camera_->acquire()) {
                 qCritical() << "Failed to acquire camera:" << QString::fromStdString(camera_->id());
             }
@@ -112,18 +104,13 @@ public:
         if (camera_) camera_->release();
     }
 
-    // Helper to clean up resources
     void freeResources() {
         if (camera_) {
             camera_->stop();
             camera_->requestCompleted.disconnect(this, &CameraNode::requestComplete);
         }
 
-        // SMART POINTER IMPROVEMENT:
-        // No manual munmap loop needed anymore.
-        // Clearing the map invokes ScopedMapping destructors, safely unmapping memory.
         mappedBuffers_.clear();
-        
         allocator_.reset();
         requests_.clear();
     }
@@ -135,7 +122,6 @@ public slots:
         freeResources();
 
         // Configure for Preview (1280x1024 - 5:4 aspect ratio)
-        // Matches 1280 width but extends height for 5:4
         config_ = camera_->generateConfiguration({ StreamRole::Viewfinder });
         StreamConfiguration &streamConfig = config_->at(0);
         streamConfig.size = {1280, 1024};
@@ -159,12 +145,9 @@ public slots:
             return false;
         }
 
-        // Map buffers
         const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator_->buffers(stream);
         for (const auto &buffer : buffers) {
             const FrameBuffer::Plane &plane = buffer->planes()[0];
-            
-            // SMART POINTER IMPROVEMENT: Use ScopedMapping instead of raw mmap
             mappedBuffers_[buffer.get()] = ScopedMapping(plane.fd.get(), plane.length);
 
             std::unique_ptr<Request> request = camera_->createRequest();
@@ -174,16 +157,23 @@ public slots:
             requests_.push_back(std::move(request));
         }
 
-        // Controls
         ControlList controls;
         if (camera_->controls().find(&controls::AfMode) != camera_->controls().end()) {
             controls.set(controls::AfMode, controls::AfModeContinuous);
         }
         if (camera_->controls().find(&controls::AwbEnable) != camera_->controls().end()) {
-             controls.set(controls::AwbEnable, true); 
+             controls.set(controls::AwbEnable, false); 
         }
-        if (camera_->controls().find(&controls::AwbMode) != camera_->controls().end()) {
-            controls.set(controls::AwbMode, controls::AwbAuto);
+
+        bool isAwbEnable = controls.get(controls::AwbEnable).value();
+        if (isAwbEnable && camera_->controls().find(&controls::AfMode) != camera_->controls().end()) {
+            auto mode = isAwbEnable ? controls::AwbAuto : controls::AwbCustom;
+            controls.set(controls::AwbMode, mode);
+        }
+
+        if (not isAwbEnable && camera_->controls().find(&controls::ColourGains) != camera_->controls().end()) {
+            std::array<float, 2> manualGain = {2.1f, 2.1f};
+            controls.set(controls::ColourGains, manualGain);
         }
 
         if (camera_->start(&controls)) {
@@ -200,20 +190,19 @@ public slots:
         return true;
     }
 
-    void captureAndSave(const QString &type) {
+    // UPDATED: Accepts specific size for capture
+    void captureAndSave(const QString &type, const QSize &targetSize) {
         freeResources();
         
         capturing_ = true;
         capturePrefix_ = type;
 
-        // Configure for Still
+        // Configure for Still with DYNAMIC SIZE
         config_ = camera_->generateConfiguration({ StreamRole::StillCapture });
         StreamConfiguration &cfg = config_->at(0);
         
-        // UPDATED: 2560x2048 (5:4 Aspect Ratio, 2K Width)
-        // Matches the aspect ratio of the UI labels (640x512)
-        cfg.size = {2560, 2048}; 
-        
+        // Convert QSize to libcamera Size
+        cfg.size = { static_cast<unsigned int>(targetSize.width()), static_cast<unsigned int>(targetSize.height()) };
         cfg.pixelFormat = formats::RGB888;
         
         config_->validate();
@@ -226,8 +215,6 @@ public slots:
         const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator_->buffers(stream);
         for (const auto &buffer : buffers) {
             const FrameBuffer::Plane &plane = buffer->planes()[0];
-            
-            // SMART POINTER IMPROVEMENT: Use ScopedMapping
             mappedBuffers_[buffer.get()] = ScopedMapping(plane.fd.get(), plane.length);
             
             std::unique_ptr<Request> req = camera_->createRequest();
@@ -239,7 +226,7 @@ public slots:
         camera_->start();
         camera_->queueRequest(requests_[0].get());
         
-        qDebug() << "Requested Capture matching preview resolution (1280x1024) for" << type;
+        qDebug() << "Requested Capture for" << type << "at resolution" << targetSize;
     }
 
     void stop() {
@@ -264,13 +251,12 @@ private:
         for (auto [stream, buffer] : buffers) {
             if (mappedBuffers_.find(buffer) == mappedBuffers_.end()) continue;
             
-            // Retrieve RAII managed pointer
             void *data = mappedBuffers_[buffer].get();
             if (!data) continue;
 
             StreamConfiguration &cfg = config_->at(0);
 
-            QImage img((uchar*)data, cfg.size.width, cfg.size.height, cfg.stride, QImage::Format_RGB888);
+            QImage img((uchar*)data, cfg.size.width, cfg.size.height, cfg.stride, QImage::Format_BGR888);
             
             if (capturing_) {
                 QString date = QDateTime::currentDateTime().toString("yyyy-MM-dd");
@@ -302,13 +288,9 @@ private:
     std::unique_ptr<CameraConfiguration> config_;
     std::unique_ptr<FrameBufferAllocator> allocator_;
     std::vector<std::unique_ptr<Request>> requests_;
-    
-    // IMPROVEMENT: Map uses ScopedMapping (RAII) instead of raw structs
     std::map<FrameBuffer *, ScopedMapping> mappedBuffers_;
-    
     QImage currentImage_;
     std::mutex mutex_;
-    
     bool capturing_;
     QString capturePrefix_;
 };
@@ -336,11 +318,9 @@ protected:
         try {
             gpiod::chip chip(chipName_);
             gpiod::line line = chip.get_line(lineNum_);
-            
             gpiod::line_request config;
             config.consumer = "DualCamCpp";
             config.request_type = gpiod::line_request::EVENT_RISING_EDGE;
-            
             line.request(config);
             
             while (running_ && !isInterruptionRequested()) {
@@ -382,7 +362,7 @@ public:
         connect(noirCam_.get(), &CameraNode::captureComplete, this, &DualCameraModel::onCaptureFinished);
         connect(rgbCam_.get(), &CameraNode::captureComplete, this, &DualCameraModel::onCaptureFinished);
 
-        gpio_ = std::make_unique<GpioThread>("gpiochip0", 27, nullptr);
+        gpio_ = std::make_unique<GpioThread>("gpiochip0", 24, nullptr);
         connect(gpio_.get(), &GpioThread::buttonPressed, this, &DualCameraModel::buttonPressed);
         gpio_->start();
     }
@@ -398,13 +378,13 @@ public:
         rgbCam_->stop();
     }
 
-    void triggerCapture() {
+    // UPDATED: Accepts target resolution
+    void triggerCapture(QSize targetSize) {
         pendingCaptures_ = 2;
-        rgbCam_->captureAndSave("rgb");
-        noirCam_->captureAndSave("noir");
+        rgbCam_->captureAndSave("rgb", targetSize);
+        noirCam_->captureAndSave("noir", targetSize);
     }
 
-    // Return raw pointers for observation (Standard C++ pattern for non-owning access)
     CameraNode* getRgbNode() { return rgbCam_.get(); }
     CameraNode* getNoirNode() { return noirCam_.get(); }
 
@@ -436,24 +416,23 @@ public:
     DualCameraView(QWidget *parent = nullptr) : QWidget(parent) {
         setWindowTitle("Dual Camera (RGB + NoIR) - C++");
         
-        // NOTE: We keep raw pointers here because Qt's Layout system
-        // takes ownership of child widgets. Using smart pointers here
-        // typically leads to double-free errors.
         rgbLabel_ = new QLabel("RGB Camera");
-        // Updated to 5:4 aspect ratio (640x512 is exactly half of 1280x1024)
-        rgbLabel_->setMinimumSize(640, 512);
+        rgbLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        rgbLabel_->setMinimumSize(1, 1); // Allow shrinking
         rgbLabel_->setAlignment(Qt::AlignCenter);
         rgbLabel_->setStyleSheet("background-color: #222; color: white;");
 
         noirLabel_ = new QLabel("NoIR Camera");
-        // Updated to 5:4 aspect ratio (640x512 is exactly half of 1280x1024)
-        noirLabel_->setMinimumSize(640, 512);
+        noirLabel_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        noirLabel_->setMinimumSize(1, 1);
         noirLabel_->setAlignment(Qt::AlignCenter);
         noirLabel_->setStyleSheet("background-color: #222; color: white;");
 
         QHBoxLayout *hbox = new QHBoxLayout();
         hbox->addWidget(rgbLabel_);
         hbox->addWidget(noirLabel_);
+        hbox->setStretch(0, 1);
+        hbox->setStretch(1, 1);
 
         QVBoxLayout *vbox = new QVBoxLayout();
         vbox->addLayout(hbox);
@@ -465,15 +444,20 @@ public:
         setLayout(vbox);
     }
 
+    // Public accessor for Controller to read current label dimensions
+    QSize getLabelSize() const {
+        return rgbLabel_->size();
+    }
+
 public slots:
     void updateRgb(const QImage &img) {
         if (!img.isNull())
-            rgbLabel_->setPixmap(QPixmap::fromImage(img).scaled(rgbLabel_->size(), Qt::KeepAspectRatio));
+            rgbLabel_->setPixmap(QPixmap::fromImage(img).scaled(rgbLabel_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
 
     void updateNoir(const QImage &img) {
          if (!img.isNull())
-            noirLabel_->setPixmap(QPixmap::fromImage(img).scaled(noirLabel_->size(), Qt::KeepAspectRatio));
+            noirLabel_->setPixmap(QPixmap::fromImage(img).scaled(noirLabel_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     }
 
 signals:
@@ -490,9 +474,6 @@ private:
 class DualCameraController : public QObject {
     Q_OBJECT
 public:
-    // SMART POINTER IMPROVEMENT:
-    // 1. Use References (&) instead of pointers (*) for Model/View to guarantee they are non-null.
-    // 2. Use unique_ptr for QTimer to manage its lifecycle explicitly.
     DualCameraController(DualCameraModel &model, DualCameraView &view) 
         : model_(model), view_(view) {
         
@@ -500,7 +481,6 @@ public:
         connect(&view_, &DualCameraView::captureRequested, this, &DualCameraController::handleCapture);
         connect(&model_, &DualCameraModel::imageCaptured, this, &DualCameraController::showInfo);
 
-        // Initialize unique_ptr (No parent needed, we own it)
         timer_ = std::make_unique<QTimer>();
         connect(timer_.get(), &QTimer::timeout, this, &DualCameraController::updateFrames);
         timer_->start(50); 
@@ -508,7 +488,28 @@ public:
 
 public slots:
     void handleCapture() {
-        model_.triggerCapture();
+        // Calculate resolution based on current UI Label size
+        QSize labelSize = view_.getLabelSize();
+        
+        // Define target Width (2K)
+        int targetWidth = 2560;
+        
+        // Calculate Height maintaining the label's Aspect Ratio
+        // Height = (LabelHeight / LabelWidth) * TargetWidth
+        int targetHeight = 0;
+        if (labelSize.width() > 0) {
+            double ratio = labelSize.height() * 1 / (double)labelSize.width();
+            if(ratio > 0) { ratio = 1 / ratio; }
+            targetHeight = static_cast<int>(targetWidth * ratio);
+        } else {
+            // Fallback if size invalid
+            targetHeight = 2048;
+        }
+
+        // Ensure dimensions are even (often required by hardware)
+        if (targetHeight % 2 != 0) targetHeight++;
+
+        model_.triggerCapture(QSize(targetWidth, targetHeight));
     }
 
     void updateFrames() {
@@ -542,12 +543,10 @@ int main(int argc, char *argv[]) {
     {
         DualCameraModel model(cm.get());
         DualCameraView view;
-        
-        // Pass by reference now
         DualCameraController controller(model, view);
 
         model.start();
-        view.showMaximized();
+        view.showFullScreen();
 
         ret = app.exec();
 
