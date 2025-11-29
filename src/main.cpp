@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
         DualCameraController controller(model, view);
 
         model.start();
-        view.showFullScreen();
+        view.showMaximized();
 
         ret = app.exec();
 

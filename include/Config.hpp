@@ -22,7 +22,7 @@ namespace Config {
     // Hardware / GPIO Settings
     namespace Gpio {
         static constexpr const char* ChipName = "gpiochip0";
-        static constexpr int TriggerButtonLine = 27; 
+        static constexpr int TriggerButtonLine = 24; 
         static constexpr int DebounceTimeSec = 1;
     }
 
