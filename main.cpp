@@ -28,7 +28,6 @@
 #include <QDebug>
 #include <QSizePolicy>
 #include <QSize> 
-#include <QSlider> 
 #include <QGroupBox> 
 #include <QFont> 
 #include <QtConcurrent> 
@@ -485,126 +484,67 @@ public:
         vbox->addLayout(hbox);
         
         // --- Manual Controls UI ---
-        QGroupBox *controlsGroup = new QGroupBox("Manual Controls (Gain Locked at 1.0x)");
+        QGroupBox *controlsGroup = new QGroupBox("Lighting Conditions (Fixed Gain 1.0x)");
         QVBoxLayout *controlsLayout = new QVBoxLayout();
 
-        // ---- NEW: Exposure Mode Buttons ----
+        // ---- Exposure Preset Buttons ----
         QHBoxLayout *modeLayout = new QHBoxLayout();
         
         QPushButton *btnSun = new QPushButton("Direct Sunlight");
         QPushButton *btnCloud = new QPushButton("Cloudy/Shade");
         QPushButton *btnIndoor = new QPushButton("Indoor");
-        QPushButton *btnCustom = new QPushButton("Custom");
-
+        
         // Styling for buttons
         QString btnStyle = "QPushButton { padding: 10px; font-size: 14px; font-weight: bold; }";
         btnSun->setStyleSheet(btnStyle);
         btnCloud->setStyleSheet(btnStyle);
         btnIndoor->setStyleSheet(btnStyle);
-        btnCustom->setStyleSheet(btnStyle);
-
+        
         modeLayout->addWidget(btnSun);
         modeLayout->addWidget(btnCloud);
         modeLayout->addWidget(btnIndoor);
-        modeLayout->addWidget(btnCustom);
         
         controlsLayout->addLayout(modeLayout);
-        // ------------------------------------
-
-        QString sliderStyle = R"(
-            QSlider::groove:horizontal {
-                border: 1px solid #bbb;
-                background: white;
-                height: 30px; 
-                border-radius: 4px;
-            }
-            QSlider::sub-page:horizontal {
-                background: qlineargradient(x1: 0, y1: 0,    x2: 0, y2: 1, stop: 0 #66e, stop: 1 #bbf);
-                background: qlineargradient(x1: 0, y1: 0.2, x2: 1, y2: 1, stop: 0 #bbf, stop: 1 #55f);
-                border: 1px solid #777;
-                height: 30px;
-                border-radius: 4px;
-            }
-            QSlider::add-page:horizontal {
-                background: #fff;
-                border: 1px solid #777;
-                height: 30px;
-                border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #eee, stop:1 #ccc);
-                border: 1px solid #777;
-                width: 40px; 
-                margin-top: -5px; 
-                margin-bottom: -5px; 
-                border-radius: 4px;
-            }
-        )";
-
-        QFont labelFont = font();
-        labelFont.setPointSize(16);
-        labelFont.setBold(true);
-
-        // Exposure Slider
-        QHBoxLayout *expLayout = new QHBoxLayout();
-        QLabel *lblExp = new QLabel("Exposure:");
-        lblExp->setFont(labelFont);
-        expLayout->addWidget(lblExp);
-
-        exposureSlider_ = new QSlider(Qt::Horizontal);
-        exposureSlider_->setRange(100, 100000); 
-        exposureSlider_->setValue(20000); 
-        exposureSlider_->setStyleSheet(sliderStyle); 
-        exposureSlider_->setMinimumHeight(50); 
-
-        expValueLabel_ = new QLabel("20000 us");
-        expValueLabel_->setFixedWidth(150);
-        expValueLabel_->setFont(labelFont);
-
-        expLayout->addWidget(exposureSlider_);
-        expLayout->addWidget(expValueLabel_);
-        controlsLayout->addLayout(expLayout);
-
-        // --- GAIN SLIDER REMOVED ---
-        // Gain is now fixed at 1.0 in the logic below
+        
+        // Current Status Label
+        statusLabel_ = new QLabel("Current: Indoor (33ms)");
+        statusLabel_->setAlignment(Qt::AlignCenter);
+        QFont statusFont = font();
+        statusFont.setPointSize(12);
+        statusLabel_->setFont(statusFont);
+        controlsLayout->addWidget(statusLabel_);
 
         controlsGroup->setLayout(controlsLayout);
         vbox->addWidget(controlsGroup);
 
         QPushButton *btn = new QPushButton("Capture");
         btn->setMinimumHeight(60);
+        QFont labelFont = font();
+        labelFont.setPointSize(16);
+        labelFont.setBold(true);
         btn->setFont(labelFont);
         connect(btn, &QPushButton::clicked, this, &DualCameraView::captureRequested);
         vbox->addWidget(btn);
 
         setLayout(vbox);
 
-        // --- Wiring up Mode Buttons (Gain Locked at 1.0) ---
+        // --- Wiring up Mode Buttons ---
         connect(btnSun, &QPushButton::clicked, this, [this](){
             // Bright Sunlight: 1000us
-            exposureSlider_->setValue(1000);
+            emit manualControlsChanged(1000, 1.0f);
+            statusLabel_->setText("Current: Direct Sunlight (1ms)");
         });
 
         connect(btnCloud, &QPushButton::clicked, this, [this](){
             // Cloud/Shade: 5000us
-            exposureSlider_->setValue(5000);
+            emit manualControlsChanged(5000, 1.0f);
+            statusLabel_->setText("Current: Cloudy/Shade (5ms)");
         });
 
         connect(btnIndoor, &QPushButton::clicked, this, [this](){
             // Indoor: 33ms 
-            exposureSlider_->setValue(33000);
-        });
-
-        connect(btnCustom, &QPushButton::clicked, this, [this](){
-            // Custom Start: 20ms
-            exposureSlider_->setValue(20000);
-        });
-
-        // --- Slider Connections ---
-        connect(exposureSlider_, &QSlider::valueChanged, this, [this](int val){
-            expValueLabel_->setText(QString("%1 us").arg(val));
-            // Always emit 1.0f as the gain
-            emit manualControlsChanged(val, 1.0f);
+            emit manualControlsChanged(33000, 1.0f);
+            statusLabel_->setText("Current: Indoor (33ms)");
         });
     }
 
@@ -630,8 +570,7 @@ signals:
 private:
     QLabel *rgbLabel_;
     QLabel *noirLabel_;
-    QSlider *exposureSlider_;
-    QLabel *expValueLabel_;
+    QLabel *statusLabel_;
 };
 
 // ==============================================================
